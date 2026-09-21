@@ -31,11 +31,19 @@ python3 -m http.server 8080
 
 y entrar a `http://localhost:8080`. (Abrir el archivo directamente con `file://` también funciona, salvo la carga de PDFs adjuntos en algunos navegadores.)
 
-### Publicar en GitHub Pages
+### Publicar en GitHub Pages con dominio propio
+
+La app queda pensada para publicarse en **`contrataciones.administracionnaken.com.ar`** (mismo patrón que `balancecero.administracionnaken.com.ar`). Ya incluye el archivo `CNAME` con ese subdominio, así que solo falta:
 
 1. Subir esta carpeta a un repositorio de GitHub (puede ser privado).
-2. En **Settings → Pages**, elegir la rama y la carpeta raíz (`/`).
-3. GitHub va a publicar la app en `https://<usuario>.github.io/<repo>/`. Si se quiere un subdominio propio (ej. `contrataciones.administracionnaken.com.ar`), se configura como CNAME en el proveedor de DNS, igual que se hizo con Balance Cero.
+2. En **Settings → Pages**, elegir la rama (`main`) y la carpeta raíz (`/`). GitHub detecta el archivo `CNAME` del repo y completa solo el campo "Custom domain"; si no lo completa automáticamente, escribir ahí `contrataciones.administracionnaken.com.ar` y guardar.
+3. En el proveedor de DNS del dominio `administracionnaken.com.ar` (Cloudflare, según lo usado para Balance Cero), crear un registro:
+   - **Tipo:** CNAME
+   - **Nombre/host:** `contrataciones`
+   - **Destino:** `<usuario-de-github>.github.io`
+   - **Proxy de Cloudflare:** puede dejarse activado (naranja) una vez que el certificado TLS de GitHub Pages esté emitido; si al principio da error de certificado, desactivarlo (DNS only, nube gris) hasta que GitHub Pages confirme el dominio y después volver a activarlo.
+4. Volver a **Settings → Pages** y tildar **"Enforce HTTPS"** una vez que el dominio figure como verificado (puede tardar unos minutos a horas en propagar).
+5. Si en algún momento se quiere cambiar el subdominio, hay que editar el archivo `CNAME` en el repo (no solo la configuración de GitHub) para que coincidan.
 
 ### Clave de acceso
 
