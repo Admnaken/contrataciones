@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NAKEN · Contrataciones</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ============================== AUTH GATE ============================== -->
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-bg-grid"></div>
+  <div class="auth-card">
+    <img src="assets/logo.png" alt="Administración NAKEN" class="auth-logo">
+    <h1>Administración NAKEN</h1>
+    <p class="auth-sub">Módulo de Contrataciones · Acceso restringido</p>
+    <form id="auth-form">
+      <input type="password" id="auth-clave" placeholder="Clave de acceso" autocomplete="current-password" required autofocus>
+      <label class="auth-remember">
+        <input type="checkbox" id="auth-recordar"> Recordarme en este dispositivo
+      </label>
+      <button type="submit" class="btn btn-primary btn-block">Ingresar</button>
+      <p id="auth-error" class="auth-error"></p>
+    </form>
+  </div>
+  <div class="auth-footer">Uso interno · Administración NAKEN</div>
+</div>
+
+<!-- ================================ APP ================================== -->
+<div id="app-root" style="display:none;">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="assets/logo.png" alt="NAKEN">
+      <div>
+        <strong>NAKEN</strong>
+        <span>Contrataciones</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-link" data-ruta="dashboard" href="#/dashboard"><span class="nav-icon">◇</span>Panel general</a>
+      <a class="nav-link" data-ruta="expediente" href="#/expediente/nuevo"><span class="nav-icon">✦</span>Nuevo expediente</a>
+      <a class="nav-link" data-ruta="consorcios" href="#/consorcios"><span class="nav-icon">▤</span>Consorcios</a>
+      <a class="nav-link" data-ruta="admin" href="#/admin"><span class="nav-icon">⚙</span>Datos del administrador</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button id="btn-lock" class="btn btn-ghost btn-block">🔒 Bloquear</button>
+      <span class="version-tag">Protocolo Ley 941 / Disp. 856/14</span>
+    </div>
+  </aside>
+
+  <main id="main-content" class="main-content"></main>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/templates.js"></script>
+<script src="js/app.js"></script>
+<script src="js/auth-gate.js"></script>
+</body>
+</html>
