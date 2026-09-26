@@ -39,7 +39,7 @@ const SHEETS_SYNC_CONFIG = {
   // Cloud con la API de Google Sheets habilitada, con
   // "https://contrataciones.administracionnaken.com.ar" (y "http://localhost"
   // si se prueba en local) como Origen autorizado de JavaScript.
-  clientId: '',
+  clientId: '52664671179-d9f7lk5756sg2re9tdet6lm5bcqd7sdj.apps.googleusercontent.com',
   scope: 'https://www.googleapis.com/auth/spreadsheets',
   hojaHistorial: 'Contrataciones_Historial',
 };
