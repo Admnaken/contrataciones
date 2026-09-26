@@ -267,6 +267,10 @@ function viewConsorcios() {
         <label>Nombre / alias<input required name="nombre" placeholder="ej: Talcahuano 1234"></label>
         <label>Dirección completa<input required name="direccion" placeholder="Talcahuano 1234, CABA"></label>
         <label>CUIT del consorcio<input required name="cuit" placeholder="30-XXXXXXXX-X"></label>
+        <label>ID de la planilla de Google Sheets de este consorcio (opcional)
+          <input name="spreadsheetId" placeholder="El mismo ID que en la app principal de gestión">
+        </label>
+        <p class="text-muted" style="margin-top:-6px;">Con esto vinculado, cada Visto Bueno que apruebes acá queda respaldado también en esa planilla (hoja "Contrataciones_Historial"), para que la app principal pueda leerlo. Ver README.md, "Respaldo en Google Sheets".</p>
         <button class="btn btn-primary" type="submit">Agregar consorcio</button>
       </form>
     </div>
@@ -274,7 +278,13 @@ function viewConsorcios() {
       <h3>Consorcios cargados</h3>
       ${consorcios.length ? `<ul class="lista-simple">${consorcios.map(c => `
         <li>
-          <div><strong>${c.nombre}</strong><br><span class="text-muted">${c.direccion} · CUIT ${c.cuit}</span></div>
+          <div style="flex:1;">
+            <strong>${c.nombre}</strong><br><span class="text-muted">${c.direccion} · CUIT ${c.cuit}</span>
+            <form onsubmit="guardarSpreadsheetIdConsorcio(event, '${c.id}')" style="margin-top:6px;display:flex;gap:6px;">
+              <input name="spreadsheetId" value="${c.spreadsheetId || ''}" placeholder="ID de la planilla de Google Sheets" style="flex:1;">
+              <button class="btn btn-ghost btn-sm" type="submit">Guardar</button>
+            </form>
+          </div>
           <button class="btn btn-ghost btn-sm" onclick="eliminarConsorcio('${c.id}')">Eliminar</button>
         </li>`).join('')}</ul>` : `<p class="text-muted">Todavía no cargaste ningún consorcio.</p>`}
     </div>
@@ -285,7 +295,20 @@ function crearConsorcio(ev) {
   ev.preventDefault();
   const f = ev.target;
   const consorcios = loadConsorcios();
-  consorcios.push({ id: 'con_' + Date.now().toString(36), nombre: f.nombre.value, direccion: f.direccion.value, cuit: f.cuit.value });
+  consorcios.push({
+    id: 'con_' + Date.now().toString(36), nombre: f.nombre.value, direccion: f.direccion.value, cuit: f.cuit.value,
+    spreadsheetId: (f.spreadsheetId.value || '').trim(),
+  });
+  saveConsorcios(consorcios);
+  render();
+}
+function guardarSpreadsheetIdConsorcio(ev, id) {
+  ev.preventDefault();
+  const valor = ev.target.spreadsheetId.value.trim();
+  const consorcios = loadConsorcios();
+  const c = consorcios.find(x => x.id === id);
+  if (!c) return;
+  c.spreadsheetId = valor;
   saveConsorcios(consorcios);
   render();
 }
@@ -826,6 +849,11 @@ function aprobarContratacion(ev, expId) {
   logExpediente(exp, `Visto Bueno de CONTRATACIÓN aprobado por ${f.por.value}.`);
   updateExpediente(exp);
   render();
+  // Respaldo en la planilla del consorcio (best-effort, no bloquea ni condiciona lo de arriba --
+  // ver js/sheets-sync.js).
+  if (typeof sincronizarExpedienteEnPlanilla === 'function') {
+    sincronizarExpedienteEnPlanilla(exp, getConsorcio(exp.consorcioId), 'contratacion');
+  }
 }
 function aprobarPago(ev, expId) {
   ev.preventDefault();
@@ -836,4 +864,7 @@ function aprobarPago(ev, expId) {
   logExpediente(exp, `Visto Bueno de PAGO aprobado por ${f.por.value}.`);
   updateExpediente(exp);
   render();
+  if (typeof sincronizarExpedienteEnPlanilla === 'function') {
+    sincronizarExpedienteEnPlanilla(exp, getConsorcio(exp.consorcioId), 'pago');
+  }
 }
