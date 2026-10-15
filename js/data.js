@@ -5,13 +5,14 @@
    ========================================================================== */
 
 // ---------------------------------------------------------------------------
-// Feriados AR (para cálculo de días hábiles en alertas) — actualizar cada año
+// Feriados AR (para cálculo de días hábiles en alertas).
+// Los de fecha fija valen para cualquier año; los trasladables y los puentes
+// hay que agregarlos cada año en FERIADOS_MOVILES.
 // ---------------------------------------------------------------------------
-const FERIADOS_AR_2026 = [
-  '2026-01-01', '2026-02-16', '2026-02-17', '2026-03-24', '2026-03-27',
-  '2026-04-02', '2026-04-03', '2026-05-01', '2026-05-25', '2026-06-17',
-  '2026-06-20', '2026-07-09', '2026-08-17', '2026-10-12', '2026-11-20',
-  '2026-12-08', '2026-12-25'
+const FERIADOS_FIJOS_MMDD = ['01-01', '03-24', '04-02', '05-01', '05-25', '06-20', '07-09', '12-08', '12-25'];
+const FERIADOS_MOVILES = [
+  '2026-02-16', '2026-02-17', '2026-03-27', '2026-04-03', '2026-06-17',
+  '2026-08-17', '2026-10-12', '2026-11-20',
 ];
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,7 @@ const ESTADO_EXPEDIENTE = {
   PAGADO: 'pagado',
   CERRADO: 'cerrado',
   RECHAZADO: 'rechazado',
+  ANULADO: 'anulado',
 };
 
 const ESTADO_META = {
@@ -53,6 +55,7 @@ const ESTADO_META = {
   pagado:                 { label: 'Pagado',                       color: 'gold'   },
   cerrado:                { label: 'Cerrado',                      color: 'green'  },
   rechazado:              { label: 'Rechazado',                    color: 'red'    },
+  anulado:                { label: 'Anulado',                      color: 'red'    },
 };
 
 // ---------------------------------------------------------------------------
@@ -72,7 +75,7 @@ const REQUISITOS_PRESUPUESTO = [
   { id: 'r6', label: 'Validez de la oferta',
     detalle: 'Plazo de mantenimiento de precios cotizados (mínimo sugerido: 15 días).' },
   { id: 'r7', label: 'Términos y plazo de garantía',
-    detalle: 'Cobertura de garantía por fallas de materiales o vicios de ejecución.' },
+    detalle: 'Cobertura de garantía por fallas de materiales o vicios de ejecución. Cargá los meses de garantía en el presupuesto: la app avisa si el mismo trabajo se repite mientras está vigente.' },
   { id: 'r8', label: 'Nómina de seguros',
     detalle: 'Declaración jurada de ART (personal en relación de dependencia) o Seguro de Accidentes Personales (autónomos), con compromiso de Cláusula de No Repetición/Indemnidad.' },
 ];
@@ -80,18 +83,20 @@ const REQUISITOS_PRESUPUESTO = [
 // ---------------------------------------------------------------------------
 // FASE 2 — Validación fiscal y técnica pre-adjudicación
 // ---------------------------------------------------------------------------
+const CATEGORIA_RI = 'Responsable Inscripto (Factura B)';
+const CATEGORIA_MONO = 'Monotributista (Factura C)';
 const VALIDACION_FISCAL_CAMPOS = [
   { id: 'cuitActivo', tipo: 'bool', label: 'CUIT en estado ACTIVO en ARCA (ex AFIP)',
     ayuda: 'Descargar la Constancia de Inscripción y verificar el estado.' },
   { id: 'categoria', tipo: 'select', label: 'Categoría impositiva',
-    opciones: ['Responsable Inscripto (Factura B)', 'Monotributista (Factura C)', 'No determinado'] },
+    opciones: [CATEGORIA_RI, CATEGORIA_MONO, 'No determinado'] },
   { id: 'impuestosOk', tipo: 'bool', label: 'Impuestos registrados: IVA, Ganancias y Empleador (si aplica)',
     ayuda: 'Verificar en la Constancia de Inscripción que figuren los impuestos correspondientes a la actividad.' },
   { id: 'apocOk', tipo: 'bool', label: 'No figura en Base APOC (facturas apócrifas)',
     ayuda: 'Consultar con clave fiscal o en el sitio institucional de ARCA.' },
   { id: 'agipOk', tipo: 'bool', label: 'Consultado el padrón AGIP (alícuota IIBB)',
     ayuda: 'Alícuota de retención/percepción aplicable en Ingresos Brutos CABA.' },
-  { id: 'agipAlicuota', tipo: 'text', label: 'Alícuota de retención IIBB (AGIP)', placeholder: 'ej: 2.5%' },
+  { id: 'agipAlicuota', tipo: 'text', label: 'Alícuota de retención IIBB (AGIP) — en %', placeholder: 'ej: 2.5' },
   { id: 'matriculaAplica', tipo: 'bool', label: '¿El rubro requiere habilitación matricular AGC / SART?',
     ayuda: 'Ascensores, calderas, incendio, desinsectación, fachadas Ley 257, etc.' },
   { id: 'matriculaOk', tipo: 'bool', label: 'Matrícula AGC / SART vigente (verificada por TAD)',
@@ -146,25 +151,32 @@ const MEDIOS_PAGO_VALIDOS = [
   'Cheque cruzado "No a la Orden"',
 ];
 
-const TOPES_SUSS_2026 = {
-  // Mínimo No Imponible orientativo para régimen SUSS (RG 1784/1785) — el usuario debe
-  // actualizar este valor según la normativa vigente al momento de operar.
-  minimoNoImponible: 175000,
-  alicuotaSugerida: 0.03,
+// Parámetros de retención. Los importes mínimos cambian con la normativa: se
+// cargan y actualizan desde "Retenciones" (quedan guardados en el servidor).
+// Las alícuotas de Ganancias son las de RG 830 para locaciones de obra y
+// servicios; el resto se completa según indique el contador.
+const PARAMETROS_RETENCION_DEFAULT = {
+  actualizado: '',
+  ganancias: { alicuotaInscripto: 2, alicuotaNoInscripto: 28, minimoNoSujeto: 0, retencionMinima: 0 },
+  suss: { alicuota: 0, minimo: 0 },
+  iibb: { alicuotaPorDefecto: 0 },
+  iva: { alicuota: 0 },
 };
 
 // ---------------------------------------------------------------------------
 // Utilidades de fecha / días hábiles
 // ---------------------------------------------------------------------------
-function esFeriado(fechaISO) {
-  return FERIADOS_AR_2026.includes(fechaISO);
+function isoLocal(d) {
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 }
-
+function esFeriado(fechaISO) {
+  return FERIADOS_MOVILES.includes(fechaISO) || FERIADOS_FIJOS_MMDD.includes(fechaISO.slice(5));
+}
 function esFinDeSemana(d) {
   const day = d.getDay();
   return day === 0 || day === 6;
 }
-
 function diasHabilesDesde(fechaISO) {
   if (!fechaISO) return null;
   const inicio = new Date(fechaISO + 'T00:00:00');
@@ -175,8 +187,7 @@ function diasHabilesDesde(fechaISO) {
   const cursor = new Date(inicio);
   while (cursor < hoy) {
     cursor.setDate(cursor.getDate() + 1);
-    const iso = cursor.toISOString().slice(0, 10);
-    if (!esFinDeSemana(cursor) && !esFeriado(iso)) count++;
+    if (!esFinDeSemana(cursor) && !esFeriado(isoLocal(cursor))) count++;
   }
   return count;
 }
@@ -184,10 +195,21 @@ function diasHabilesDesde(fechaISO) {
 // ---------------------------------------------------------------------------
 // Fábrica de expediente nuevo
 // ---------------------------------------------------------------------------
+function nuevoPago() {
+  return {
+    caeValidado: false, cae: '', tipoFactura: '', numeroFactura: '', fechaFactura: '',
+    montoNeto: 0, montoIva: 0, totalFactura: 0, facturaUrl: '',
+    retenciones: { ganancias: 0, suss: 0, iibb: 0, iva: 0 },
+    retencionesCalculadas: null,
+    medioPago: '', fechaPago: '', montoAPagar: 0,
+  };
+}
+
 function nuevoExpediente(datosIniciales) {
   const id = 'exp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   return Object.assign({
     id,
+    version: 0,
     creado: new Date().toISOString(),
     actualizado: new Date().toISOString(),
     estado: ESTADO_EXPEDIENTE.BORRADOR,
@@ -202,13 +224,10 @@ function nuevoExpediente(datosIniciales) {
     validacionFiscal: {},
     instrumentacion: { tipo: null, clausulas: {}, contratoTexto: '', esRecurrente: false },
     complianceLaboral: { tipoPrestador: null, documentos: {}, vencimientos: {} },
-    pago: {
-      caeValidado: false, numeroFactura: '', tipoFactura: '', montoNeto: 0, montoIva: 0,
-      aplicaSUSS: false, montoRetSUSS: 0, aplicaAGIP: false, montoRetAGIP: 0,
-      medioPago: '', montoAPagar: 0, fechaPago: '',
-    },
+    pago: nuevoPago(),
     vistoBuenoContratacion: { aprobado: false, por: '', fecha: '', observaciones: '' },
     vistoBuenoPago: { aprobado: false, por: '', fecha: '', observaciones: '' },
+    anulado: null,
     historial: [{ fecha: new Date().toISOString(), texto: 'Expediente creado.' }],
   }, datosIniciales || {});
 }
@@ -224,8 +243,9 @@ function nuevoPresupuesto(datosIniciales) {
     proveedorEmail: '',
     proveedorTelefono: '',
     monto: 0,
+    garantiaMeses: 0,
     archivoNombre: '',
-    archivoDataUrl: '',
+    archivoUrl: '',
     requisitos: req,
     notas: '',
     recibido: new Date().toISOString(),

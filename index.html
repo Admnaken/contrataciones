@@ -8,6 +8,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/styles.css">
+<style>
+  /* Agregados de la versión con servidor */
+  #auth-usuario { width: 100%; padding: 13px 16px; border-radius: 10px; border: 1px solid var(--border-soft);
+    background: rgba(255,255,255,0.04); color: var(--text); font-size: 15px; margin-bottom: 14px; }
+  .estado-guardado { font-size: 12px; color: var(--gold); min-height: 16px; text-align: center; margin-bottom: 8px; }
+  .nk-bloqueo { margin-bottom: 14px; }
+  .form-inline-nk { display: grid; grid-template-columns: 2fr 1fr auto; gap: 8px; align-items: end; margin-top: 8px; }
+  .form-inline-nk label { margin-bottom: 0; }
+  .alerta a { color: var(--gold-bright); }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  @media (max-width: 720px) { .form-inline-nk { grid-template-columns: 1fr; } }
+</style>
 </head>
 <body>
 
@@ -19,7 +31,8 @@
     <h1>Administración NAKEN</h1>
     <p class="auth-sub">Módulo de Contrataciones · Acceso restringido</p>
     <form id="auth-form">
-      <input type="password" id="auth-clave" placeholder="Clave de acceso" autocomplete="current-password" required autofocus>
+      <input type="text" id="auth-usuario" placeholder="Usuario de administrador" autocomplete="username" required autofocus>
+      <input type="password" id="auth-clave" placeholder="Clave" autocomplete="current-password" required>
       <label class="auth-remember">
         <input type="checkbox" id="auth-recordar"> Recordarme en este dispositivo
       </label>
@@ -27,7 +40,7 @@
       <p id="auth-error" class="auth-error"></p>
     </form>
   </div>
-  <div class="auth-footer">Uso interno · Administración NAKEN</div>
+  <div class="auth-footer">Mismo usuario y clave de administrador de la app principal</div>
 </div>
 
 <!-- ================================ APP ================================== -->
@@ -44,22 +57,23 @@
       <a class="nav-link" data-ruta="dashboard" href="#/dashboard"><span class="nav-icon">◇</span>Panel general</a>
       <a class="nav-link" data-ruta="expediente" href="#/expediente/nuevo"><span class="nav-icon">✦</span>Nuevo expediente</a>
       <a class="nav-link" data-ruta="consorcios" href="#/consorcios"><span class="nav-icon">▤</span>Consorcios</a>
+      <a class="nav-link" data-ruta="retenciones" href="#/retenciones"><span class="nav-icon">％</span>Retenciones</a>
       <a class="nav-link" data-ruta="admin" href="#/admin"><span class="nav-icon">⚙</span>Datos del administrador</a>
     </nav>
     <div class="sidebar-footer">
-      <button id="btn-lock" class="btn btn-ghost btn-block">🔒 Bloquear</button>
-      <span class="version-tag">Protocolo Ley 941 / Disp. 856/14</span>
+      <div id="estado-guardado" class="estado-guardado"></div>
+      <button id="btn-lock" class="btn btn-ghost btn-block">🔒 Cerrar sesión</button>
+      <span class="version-tag">Protocolo Ley 941 / Disp. 856/14 · v2026-10-15</span>
     </div>
   </aside>
 
   <main id="main-content" class="main-content"></main>
 </div>
 
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="js/data.js"></script>
-<script src="js/templates.js"></script>
-<script src="js/sheets-sync.js"></script>
-<script src="js/app.js"></script>
-<script src="js/auth-gate.js"></script>
+<script src="js/api.js?v=20261015a"></script>
+<script src="js/data.js?v=20261015a"></script>
+<script src="js/templates.js?v=20261015a"></script>
+<script src="js/app.js?v=20261015a"></script>
+<script src="js/auth-gate.js?v=20261015a"></script>
 </body>
 </html>

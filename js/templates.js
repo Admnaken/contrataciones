@@ -4,11 +4,26 @@
    locación de obra/servicios, y resumen del expediente para expensas.
    ========================================================================== */
 
+// Todo texto cargado por el usuario pasa por acá antes de ir al HTML: así un
+// apóstrofo ("O'Higgins") o unas comillas no rompen la pantalla.
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function fmtFecha(iso) {
   if (!iso) return '[Fecha]';
-  const d = new Date(iso + (iso.length === 10 ? 'T00:00:00' : ''));
+  const d = new Date(iso + (String(iso).length === 10 ? 'T00:00:00' : ''));
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+function fmtFechaCorta(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + (String(iso).length === 10 ? 'T00:00:00' : ''));
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('es-AR');
 }
 
 function fmtMoneda(n) {
@@ -69,13 +84,17 @@ function generarContratoLocacion(exp, consorcio, admin, presupuesto) {
     return `${i + 1}. ${c.label.toUpperCase()}${marcada}\n${c.detalle}`;
   }).join('\n\n');
 
+  const garantia = Number(prov.garantiaMeses) > 0
+    ? `\n\nGARANTÍA: EL CONTRATISTA garantiza los trabajos y materiales por ${Number(prov.garantiaMeses)} meses desde la recepción, obligándose a reparar sin cargo las fallas de materiales o vicios de ejecución que se presenten en ese plazo.`
+    : '';
+
   return `CONTRATO DE LOCACIÓN DE OBRA / SERVICIOS
 
 Entre el CONSORCIO DE PROPIETARIOS de la calle ${direccion}, CABA, CUIT ${cuitConsorcio}, representado en este acto por su administrador ${adminNombre} (Mat. RPA CABA N.º ${matricula}), en adelante "EL CONSORCIO"; y ${prov.proveedorNombre || '[Nombre del Contratista]'}, CUIT ${prov.proveedorCuit || '[CUIT]'}, en adelante "EL CONTRATISTA"; se conviene celebrar el presente contrato de locación de obra/servicios sujeto a las siguientes cláusulas, conforme los Arts. 1251 y ss. del Código Civil y Comercial de la Nación:
 
 ${clausulasTexto}
 
-MONTO Y FORMA DE PAGO: según presupuesto aprobado de fecha ${fmtFecha(prov.recibido)}, por un monto total de ${fmtMoneda(prov.monto)}, IVA incluido según corresponda. El pago se realizará exclusivamente mediante transferencia bancaria, eCheq o cheque cruzado "No a la Orden" desde la cuenta del Consorcio, quedando prohibido el pago en efectivo (Ley 25.345).
+MONTO Y FORMA DE PAGO: según presupuesto aprobado de fecha ${fmtFecha(String(prov.recibido || '').slice(0, 10))}, por un monto total de ${fmtMoneda(prov.monto)}, IVA incluido según corresponda. El pago se realizará exclusivamente mediante transferencia bancaria, eCheq o cheque cruzado "No a la Orden" desde la cuenta del Consorcio, quedando prohibido el pago en efectivo (Ley 25.345).${garantia}
 
 DOCUMENTACIÓN PREVIA OBLIGATORIA: EL CONTRATISTA se obliga a presentar, con no menos de 48 horas de antelación al inicio de tareas, la totalidad de la documentación laboral y previsional exigida por EL CONSORCIO conforme el Art. 30 de la Ley de Contrato de Trabajo y el Art. 1753 del CCyCN.
 
@@ -90,21 +109,25 @@ Administrador - Mat. RPA N.º ${matricula}`;
 
 function generarResumenExpediente(exp, consorcio) {
   const prov = (exp.presupuestos || []).find(p => p.id === exp.proveedorSeleccionadoId) || {};
+  const p = exp.pago || {};
+  const r = p.retenciones || {};
   const lineas = [];
-  lineas.push(`RESUMEN DE EXPEDIENTE DE CONTRATACIÓN`);
+  lineas.push(`RESUMEN DE EXPEDIENTE DE CONTRATACIÓN — N° ${exp.id}`);
   lineas.push(`Consorcio: ${(consorcio && consorcio.nombre) || '-'} (${(consorcio && consorcio.direccion) || '-'})`);
   lineas.push(`Servicio: ${exp.tipoServicio || '-'} — ${exp.areaInstalacion || '-'}`);
   lineas.push(`Tipo: mantenimiento ${exp.tipoMantenimiento}`);
   lineas.push(`Proveedor adjudicado: ${prov.proveedorNombre || '-'} (CUIT ${prov.proveedorCuit || '-'})`);
-  lineas.push(`Monto: ${fmtMoneda(prov.monto)}`);
+  lineas.push(`Monto presupuestado: ${fmtMoneda(prov.monto)}${Number(prov.garantiaMeses) > 0 ? ' · Garantía: ' + prov.garantiaMeses + ' meses' : ''}`);
   lineas.push(`Instrumentación: ${exp.instrumentacion.tipo === TIPO_INSTRUMENTACION.CONTRATO ? 'Contrato de locación' : 'Presupuesto aprobado'}`);
-  lineas.push(`Visto bueno contratación: ${exp.vistoBuenoContratacion.aprobado ? 'APROBADO el ' + fmtFecha(exp.vistoBuenoContratacion.fecha) + ' por ' + exp.vistoBuenoContratacion.por : 'Pendiente'}`);
-  lineas.push(`Visto bueno de pago: ${exp.vistoBuenoPago.aprobado ? 'APROBADO el ' + fmtFecha(exp.vistoBuenoPago.fecha) + ' por ' + exp.vistoBuenoPago.por : 'Pendiente'}`);
-  if (exp.pago) {
-    lineas.push(`Retenciones: SUSS ${exp.pago.aplicaSUSS ? fmtMoneda(exp.pago.montoRetSUSS) : 'No aplica'} · AGIP ${exp.pago.aplicaAGIP ? fmtMoneda(exp.pago.montoRetAGIP) : 'No aplica'}`);
-    lineas.push(`Medio de pago: ${exp.pago.medioPago || '-'}`);
-    lineas.push(`Monto a pagar (neto de retenciones): ${fmtMoneda(exp.pago.montoAPagar)}`);
+  lineas.push(`Visto bueno contratación: ${exp.vistoBuenoContratacion.aprobado ? 'APROBADO el ' + fmtFecha(String(exp.vistoBuenoContratacion.fecha).slice(0, 10)) + ' por ' + exp.vistoBuenoContratacion.por : 'Pendiente'}`);
+  if (p.numeroFactura) {
+    lineas.push(`Factura ${p.tipoFactura || ''} N° ${p.numeroFactura}${p.fechaFactura ? ' del ' + fmtFechaCorta(p.fechaFactura) : ''}: neto ${fmtMoneda(p.montoNeto)} + IVA ${fmtMoneda(p.montoIva)} = ${fmtMoneda(p.totalFactura)}`);
+    lineas.push(`Retenciones: Ganancias ${fmtMoneda(r.ganancias)} · SUSS ${fmtMoneda(r.suss)} · IIBB ${fmtMoneda(r.iibb)} · IVA ${fmtMoneda(r.iva)}`);
+    lineas.push(`Medio de pago: ${p.medioPago || '-'}${p.fechaPago ? ' · Fecha de pago: ' + fmtFechaCorta(p.fechaPago) : ''}`);
+    lineas.push(`Monto a pagar (neto de retenciones): ${fmtMoneda(p.montoAPagar)}`);
   }
+  lineas.push(`Visto bueno de pago: ${exp.vistoBuenoPago.aprobado ? 'APROBADO el ' + fmtFecha(String(exp.vistoBuenoPago.fecha).slice(0, 10)) + ' por ' + exp.vistoBuenoPago.por : 'Pendiente'}`);
+  if (exp.anulado && exp.anulado.fecha) lineas.push(`ANULADO el ${fmtFechaCorta(exp.anulado.fecha.slice(0, 10))}: ${exp.anulado.motivo}`);
   return lineas.join('\n');
 }
 
@@ -116,13 +139,13 @@ function copiarAlPortapapeles(texto, btn) {
       btn.classList.add('btn-success-flash');
       setTimeout(() => { btn.textContent = original; btn.classList.remove('btn-success-flash'); }, 1600);
     }
-  });
+  }).catch(() => alert('No se pudo copiar. Seleccioná el texto y copialo a mano.'));
 }
 
 function abrirImprimible(titulo, textoPlano) {
   const w = window.open('', '_blank');
-  const htmlEscapado = textoPlano.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${titulo}</title>
+  if (!w) { alert('El navegador bloqueó la ventana. Habilitá las ventanas emergentes para este sitio.'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${esc(titulo)}</title>
   <style>
     body { font-family: 'Georgia', serif; max-width: 780px; margin: 40px auto; color: #1a1a1a; line-height: 1.6; white-space: pre-wrap; }
     h1 { font-size: 18px; border-bottom: 2px solid #0B2A4A; padding-bottom: 8px; }
@@ -131,8 +154,8 @@ function abrirImprimible(titulo, textoPlano) {
     @media print { .toolbar { display: none; } }
   </style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨️ Imprimir / Guardar como PDF</button></div>
-  <h1>${titulo}</h1>
-  <div>${htmlEscapado}</div>
+  <h1>${esc(titulo)}</h1>
+  <div>${esc(textoPlano)}</div>
   </body></html>`);
   w.document.close();
 }
