@@ -36,6 +36,7 @@ const ESTADO_EXPEDIENTE = {
   CONTRATADO: 'contratado',
   EN_EJECUCION: 'en_ejecucion',
   LISTO_PARA_PAGAR: 'listo_para_pagar',
+  PAGO_APROBADO: 'pago_aprobado',
   PAGADO: 'pagado',
   CERRADO: 'cerrado',
   RECHAZADO: 'rechazado',
@@ -52,6 +53,7 @@ const ESTADO_META = {
   contratado:             { label: 'Contratado',                   color: 'teal'   },
   en_ejecucion:           { label: 'En ejecución',                 color: 'teal'   },
   listo_para_pagar:       { label: 'Listo — falta VB de pago',     color: 'amber'  },
+  pago_aprobado:          { label: 'Aprobado — falta registrar el pago', color: 'amber' },
   pagado:                 { label: 'Pagado',                       color: 'gold'   },
   cerrado:                { label: 'Cerrado',                      color: 'green'  },
   rechazado:              { label: 'Rechazado',                    color: 'red'    },
@@ -228,6 +230,7 @@ function nuevoExpediente(datosIniciales) {
     vistoBuenoContratacion: { aprobado: false, por: '', fecha: '', observaciones: '' },
     vistoBuenoPago: { aprobado: false, por: '', fecha: '', observaciones: '' },
     anulado: null,
+    pagoRealizado: null,
     historial: [{ fecha: new Date().toISOString(), texto: 'Expediente creado.' }],
   }, datosIniciales || {});
 }

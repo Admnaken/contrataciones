@@ -20,6 +20,7 @@ const S = {
   expedientes: [],
   mantenimiento: {},      // { [edificioId]: [...] } historial de la app principal (se trae a demanda)
   guardando: 0,
+  datosPago: {},          // { [expId]: { rubros, pagos, tienePlanillaRetenciones } } (a demanda)
   confirmarCreacion: null, // datos del alta pendiente de "crear igual" tras ver antecedentes
 };
 const TEXTOS = {}; // textos para los botones "Copiar" / "Imprimir" (sin meterlos en atributos HTML)
@@ -127,6 +128,8 @@ function presupuestoSeleccionado(exp) {
   return (exp.presupuestos || []).find(p => p.id === exp.proveedorSeleccionadoId) || null;
 }
 function estaAnulado(exp) { return !!(exp.anulado && exp.anulado.fecha); }
+function pagoRegistrado(exp) { return !!(exp.pagoRealizado && exp.pagoRealizado.fecha); }
+function tienePlanillaRetenciones(exp) { const e = S.edificios.find(x => x.id === exp.consorcioId); return !!(e && e.tieneRetenciones); }
 
 function fase1Completa(exp) {
   const p = presupuestoSeleccionado(exp);
@@ -166,6 +169,10 @@ function problemasPago(exp) {
   if (p.tipoFactura === 'C' && num(p.montoIva) > 0) out.push('Una factura C no discrimina IVA.');
   if (!p.medioPago || !MEDIOS_PAGO_VALIDOS.includes(p.medioPago)) out.push('Falta un medio de pago válido (nunca efectivo).');
   if (!p.fechaPago) out.push('Falta la fecha de pago.');
+  if (tienePlanillaRetenciones(exp)) {
+    if (!p.retencionPlanilla) out.push('Falta vincular el pago con su fila de la planilla de Retenciones del consorcio.');
+    else if (Math.abs(num(p.retencionPlanilla.importeTotal) - num(p.totalFactura)) > 1) out.push(`El total de la factura (${fmtMoneda(p.totalFactura)}) no coincide con el pago de la planilla de Retenciones (${fmtMoneda(p.retencionPlanilla.importeTotal)}).`);
+  }
   const dup = facturaDuplicada(exp);
   if (dup) out.push(`La factura ${p.numeroFactura} de este proveedor ya está en otro expediente (${dup.tipoServicio || dup.id}).`);
   return out;
@@ -181,7 +188,7 @@ function puedeVistoBuenoPago(exp) {
 
 function recalcularEstado(exp) {
   if (estaAnulado(exp)) { exp.estado = ESTADO_EXPEDIENTE.ANULADO; return; }
-  if (exp.vistoBuenoPago.aprobado) { exp.estado = ESTADO_EXPEDIENTE.PAGADO; return; }
+  if (exp.vistoBuenoPago.aprobado) { exp.estado = pagoRegistrado(exp) ? ESTADO_EXPEDIENTE.PAGADO : ESTADO_EXPEDIENTE.PAGO_APROBADO; return; }
   if (exp.vistoBuenoContratacion.aprobado) {
     exp.estado = fase5Completa(exp) ? ESTADO_EXPEDIENTE.LISTO_PARA_PAGAR : ESTADO_EXPEDIENTE.EN_EJECUCION;
     return;
@@ -240,7 +247,7 @@ function finGarantia(e) {
   const p = presupuestoSeleccionado(e);
   const meses = p ? Number(p.garantiaMeses) || 0 : 0;
   if (!meses || !e.vistoBuenoPago.aprobado) return null;
-  const base = new Date((e.pago && e.pago.fechaPago) || e.vistoBuenoPago.fecha);
+  const base = new Date((e.pagoRealizado && e.pagoRealizado.fecha) || (e.pago && e.pago.fechaPago) || e.vistoBuenoPago.fecha);
   if (isNaN(base)) return null;
   base.setMonth(base.getMonth() + meses);
   return base;
@@ -512,6 +519,7 @@ function generarAlertas(expedientes) {
   }
   expedientes.forEach(e => {
     if ([ESTADO_EXPEDIENTE.PAGADO, ESTADO_EXPEDIENTE.CERRADO, ESTADO_EXPEDIENTE.ANULADO].includes(e.estado)) return;
+    if (e.estado === ESTADO_EXPEDIENTE.PAGO_APROBADO) { /* alerta propia más abajo */ }
     const p = presupuestoSeleccionado(e);
     if (p) {
       const dias = diasHabilesDesde(String(p.recibido).slice(0, 10));
@@ -523,6 +531,10 @@ function generarAlertas(expedientes) {
     if (e.estado === ESTADO_EXPEDIENTE.LISTO_PARA_CONTRATAR) {
       alertas.push({ nivel: 'blue', icono: '✅', titulo: 'Listo para Visto Bueno de contratación',
         texto: `El expediente "${e.tipoServicio || 'sin nombre'}" completó las fases 1 a 4 y está esperando la aprobación para contratar.` });
+    }
+    if (e.estado === ESTADO_EXPEDIENTE.PAGO_APROBADO) {
+      alertas.push({ nivel: 'gold', icono: '🏦', titulo: 'Pago aprobado: falta registrar que se hizo',
+        texto: `"${e.tipoServicio || 'sin nombre'}": cuando hagas la transferencia, registrala en "Vistos buenos" para que se cargue el gasto en la liquidación.` });
     }
     if (e.estado === ESTADO_EXPEDIENTE.LISTO_PARA_PAGAR) {
       alertas.push({ nivel: 'gold', icono: '💳', titulo: 'Listo para Visto Bueno de pago',
@@ -1084,6 +1096,7 @@ function tabPago(exp) {
   return `
   ${parecidos.length ? `<div class="alerta alerta-red"><span>⚠️</span><div><strong>Posible pago repetido</strong><p>Este proveedor ya tiene ${parecidos.length} pago(s) por el mismo importe en los últimos 90 días: ${parecidos.map(e => esc(e.tipoServicio) + ' (factura ' + esc((e.pago || {}).numeroFactura || 's/n') + ')').join(', ')}. Confirmá que no sea el mismo trabajo antes de aprobar.</p></div></div>` : ''}
   ${difPresupuesto ? `<div class="alerta alerta-amber"><span>📄</span><div><strong>La factura no coincide con el presupuesto aprobado</strong><p>Presupuesto ${fmtMoneda(prov.monto)} · Factura ${fmtMoneda(p.totalFactura)}. Dejá la explicación en las observaciones del Visto Bueno de pago.</p></div></div>` : ''}
+  ${bloquePlanillaRetenciones(exp, p)}
   <div class="card card-narrow">
     <h3>Factura del proveedor</h3>
     <form onsubmit="guardarPago(event,'${esc(exp.id)}')" id="form-pago">
@@ -1132,6 +1145,65 @@ function tabPago(exp) {
   `;
 }
 
+// --- Vínculo con la planilla de Retenciones del consorcio -------------------
+function bloquePlanillaRetenciones(exp, p) {
+  if (!tienePlanillaRetenciones(exp)) {
+    return `<div class="alerta alerta-blue"><span>ℹ️</span><div><strong>Este consorcio no tiene planilla de Retenciones vinculada</strong>
+      <p>Las retenciones se calculan acá con los parámetros del menú Retenciones. Si el consorcio usa la planilla, vinculala en la app principal (Todos los consorcios → ID de la planilla de Retenciones ARCA).</p></div></div>`;
+  }
+  const vinc = p.retencionPlanilla;
+  const datos = S.datosPago[exp.id];
+  let lista = '';
+  if (datos) {
+    const avisos = (datos.avisos || []).map(a => `<p class="text-muted" style="color:var(--amber);">${esc(a)}</p>`).join('');
+    lista = avisos + (datos.pagos.length ? datos.pagos.map(r => {
+      const usadoOtro = r.usadoPor && r.usadoPor.id !== exp.id;
+      const esEste = vinc && vinc.clave === r.clave;
+      return `<div class="alerta ${esEste ? 'alerta-gold' : 'alerta-blue'}"><span>${esEste ? '✅' : '📄'}</span><div style="flex:1;">
+        <strong>${esc(r.fecha)} — ${fmtMoneda(r.importeTotal)} (fila ${esc(r.fila)})</strong>
+        <p>${esc(r.descripcion || '')}${r.codigoRegimen ? ' · cód. ' + esc(r.codigoRegimen) : ''} · Ganancias ${fmtMoneda(r.gananciasRetenido)} · SUSS ${fmtMoneda(r.sussRetenido)} · IVA ${fmtMoneda(r.ivaRetenido)} · Neto a pagar ${fmtMoneda(r.netoFinal)}${r.comprobante ? ' · Comprobante ' + esc(r.comprobante) : ''}${r.nCertificado ? ' · Certificado ' + esc(r.nCertificado) : ''}</p>
+        ${usadoOtro ? `<p style="color:var(--red);">Ya está usado en otro expediente: ${esc(r.usadoPor.servicio || r.usadoPor.id)}.</p>` :
+          esEste ? '<p>Vinculado a este expediente.</p>' : `<button class="btn btn-sm btn-secondary" type="button" onclick="usarFilaRetencion('${esc(exp.id)}','${esc(r.clave)}')">Usar este pago</button>`}
+      </div></div>`;
+    }).join('') : `<p class="text-muted">No hay pagos de este proveedor (CUIT ${esc((presupuestoSeleccionado(exp) || {}).proveedorCuit)}) en la planilla de Retenciones. Cargalo allá y volvé a buscar.</p>`);
+  }
+  return `<div class="card card-narrow">
+    <h3>Planilla de Retenciones del consorcio</h3>
+    <p class="text-muted">Las retenciones las calcula esa planilla. Elegí la fila de este pago: se copian el importe, las retenciones, el certificado y el neto a transferir. Cada fila respalda un solo expediente.</p>
+    ${vinc ? `<p><strong>Vinculado:</strong> fila ${esc(vinc.fila)} del ${esc(vinc.fecha)} — ${fmtMoneda(vinc.importeTotal)}${vinc.nCertificado ? ' — certificado ' + esc(vinc.nCertificado) : ''}</p>` : ''}
+    <div class="btn-row" style="margin-bottom:10px;"><button class="btn btn-secondary" type="button" onclick="buscarEnPlanillaRetenciones(this,'${esc(exp.id)}')">${datos ? 'Volver a buscar' : 'Buscar en la planilla de Retenciones'}</button></div>
+    ${lista}
+  </div>`;
+}
+
+async function buscarEnPlanillaRetenciones(btn, expId) {
+  const exp = getExpediente(expId);
+  const prov = presupuestoSeleccionado(exp) || {};
+  if (btn) { btn.disabled = true; btn.textContent = 'Buscando…'; }
+  try { S.datosPago[expId] = await Api.datosPago(exp.consorcioId, prov.proveedorCuit); }
+  catch (e) { alert(e.message); }
+  render();
+}
+
+function usarFilaRetencion(expId, clave) {
+  const datos = S.datosPago[expId];
+  const r = datos && datos.pagos.find(x => x.clave === clave);
+  const f = document.getElementById('form-pago');
+  if (!r || !f) return;
+  const iso = (t) => { const m = String(t || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+  f.totalFactura.value = r.importeTotal;
+  if (!f.numeroFactura.value && r.comprobante) f.numeroFactura.value = r.comprobante;
+  if (!f.fechaPago.value) f.fechaPago.value = iso(r.fecha);
+  f.retGanancias.value = r.gananciasRetenido; f.retSUSS.value = r.sussRetenido; f.retIVA.value = r.ivaRetenido;
+  f.dataset.retencionPlanilla = JSON.stringify({
+    clave: r.clave, fila: r.fila, fecha: r.fecha, importeTotal: r.importeTotal, codigoRegimen: r.codigoRegimen,
+    nCertificado: r.nCertificado, comprobante: r.comprobante, ganancias: r.gananciasRetenido, suss: r.sussRetenido,
+    iva: r.ivaRetenido, totalRetenido: r.totalRetenido, netoFinal: r.netoFinal,
+  });
+  document.getElementById('detalle-retenciones').textContent = `Datos tomados de la fila ${r.fila} de la planilla de Retenciones (${r.fecha}). Completá neto, IVA, fecha de factura y tocá Guardar.`;
+  f.scrollIntoView({ behavior: 'smooth' });
+}
+
 function leerPagoDelForm(f, exp) {
   const anterior = Object.assign(nuevoPago(), exp.pago || {});
   const pago = Object.assign({}, anterior, {
@@ -1148,6 +1220,7 @@ function leerPagoDelForm(f, exp) {
     medioPago: f.medioPago.value,
     fechaPago: f.fechaPago.value,
   });
+  if (f.dataset.retencionPlanilla) pago.retencionPlanilla = JSON.parse(f.dataset.retencionPlanilla);
   const ret = pago.retenciones;
   pago.montoAPagar = r2(pago.totalFactura - ret.ganancias - ret.suss - ret.iibb - ret.iva);
   return pago;
@@ -1186,7 +1259,11 @@ async function guardarPago(ev, expId) {
       try { pago.facturaUrl = await Api.subirArchivo(file, `Contrataciones - ${cons ? cons.nombre : 'Sin consorcio'}`); }
       catch (e) { if (!confirm('No se pudo subir la factura (' + e.message + '). ¿Guardar los datos sin el archivo?')) return; }
     }
+    const vincAnterior = exp.pago && exp.pago.retencionPlanilla ? exp.pago.retencionPlanilla.clave : '';
     exp.pago = pago;
+    if (pago.retencionPlanilla && pago.retencionPlanilla.clave !== vincAnterior) {
+      logExpediente(exp, `Vinculado con la fila ${pago.retencionPlanilla.fila} de la planilla de Retenciones (${pago.retencionPlanilla.fecha}, ${fmtMoneda(pago.retencionPlanilla.importeTotal)}).`);
+    }
     logExpediente(exp, `Factura ${pago.tipoFactura} ${pago.numeroFactura}: total ${fmtMoneda(pago.totalFactura)}, retenciones ${fmtMoneda(pago.totalFactura - pago.montoAPagar)}, a pagar ${fmtMoneda(pago.montoAPagar)}.`);
     await guardarExp(exp);
   });
@@ -1237,6 +1314,8 @@ function tabVistosBuenos(exp, consorcio) {
     </div>
   </div>
 
+  ${bloquePagoRealizado(exp)}
+
   <div class="card">
     <h3>Resumen del expediente</h3>
     <pre class="preview-text">${esc(resumen)}</pre>
@@ -1263,6 +1342,67 @@ function tabVistosBuenos(exp, consorcio) {
     </ul>
   </div>
   `;
+}
+
+// --- Registrar pago realizado (después de hacer la transferencia) --------------
+function bloquePagoRealizado(exp) {
+  if (!exp.vistoBuenoPago.aprobado) return '';
+  const pr = exp.pagoRealizado;
+  if (pr && pr.fecha) {
+    return `<div class="card vb-card vb-aprobado"><h3>Pago realizado</h3>
+      <div class="vb-aprobado-info">✅ Pagado el ${esc(fmtFechaCorta(pr.fecha))}${pr.referencia ? ' — operación ' + esc(pr.referencia) : ''}${pr.comprobanteUrl ? ` — <a href="${esc(pr.comprobanteUrl)}" target="_blank" rel="noopener">comprobante</a>` : ''}</div>
+      <p class="text-muted">Cargado en Gastos_Mensual (${esc(pr.rubroGastos)}, Fondo ${esc(pr.fondo)}), retenciones, historial de mantenimiento y lista de proveedores del consorcio.</p></div>`;
+  }
+  const datos = S.datosPago[exp.id];
+  const rubros = datos ? datos.rubros || [] : null;
+  const p = exp.pago || {};
+  return `<div class="card card-narrow">
+    <h3>Registrar pago realizado</h3>
+    <p class="text-muted">Después de hacer la transferencia. En un solo paso se carga el gasto en la liquidación del consorcio (Gastos_Mensual, con la factura), las retenciones, el historial de mantenimiento y el proveedor. No se puede cargar dos veces.</p>
+    <form onsubmit="registrarPagoRealizado(event,'${esc(exp.id)}')">
+      <label>Fecha en que se hizo el pago<input type="date" name="fechaPago" required min="2000-01-01" max="2099-12-31" value="${esc(p.fechaPago || '')}"></label>
+      <label>N° de operación / transferencia<input name="referencia" placeholder="Opcional"></label>
+      <label>Comprobante de la transferencia (se guarda en tu Drive)<input type="file" name="comprobante" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*"></label>
+      <label>Rubro del gasto en la liquidación
+        ${rubros && rubros.length
+          ? `<select name="rubroGastos" required><option value="">Elegir…</option>${rubros.map(r => `<option ${/manten|repar/i.test(r) && rubros.filter(x => /manten|repar/i.test(x)).length === 1 ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>`
+          : `<input name="rubroGastos" required placeholder="Ej: 4 - Mantenimiento y Reparaciones">${rubros ? '' : ` <button class="btn btn-sm btn-ghost nk-libre" type="button" onclick="buscarEnPlanillaRetenciones(this,'${esc(exp.id)}')">Traer rubros de la planilla</button>`}`}
+      </label>
+      <label>Fondo
+        <select name="fondo"><option value="A">Fondo A (ordinario)</option><option value="B">Fondo B (extraordinario / reserva)</option></select>
+      </label>
+      <button class="btn btn-primary" type="submit">Registrar pago realizado</button>
+    </form>
+  </div>`;
+}
+
+async function registrarPagoRealizado(ev, expId) {
+  ev.preventDefault();
+  const f = ev.target;
+  const exp = getExpediente(expId);
+  const datos = { expedienteId: expId, fechaPago: f.fechaPago.value, referencia: f.referencia.value.trim(), rubroGastos: f.rubroGastos.value.trim(), fondo: f.fondo.value };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fechaPago)) { alert('Revisá la fecha del pago.'); return; }
+  if (new Date(datos.fechaPago + 'T12:00:00') > new Date()) { alert('La fecha del pago no puede ser futura: registralo después de hacer la transferencia.'); return; }
+  if (!confirm(`Se registra el pago de ${fmtMoneda(exp.pago.totalFactura)} a ${(presupuestoSeleccionado(exp) || {}).proveedorNombre} en la liquidación (${datos.rubroGastos}, Fondo ${datos.fondo}). ¿Confirmás?`)) return;
+  await conBoton(f.querySelector('button[type="submit"]'), async () => {
+    const file = f.comprobante.files[0];
+    if (file) {
+      const cons = getConsorcio(exp.consorcioId);
+      try { datos.comprobanteUrl = await Api.subirArchivo(file, `Contrataciones - ${cons ? cons.nombre : 'Sin consorcio'}`); }
+      catch (e) { if (!confirm('No se pudo subir el comprobante (' + e.message + '). ¿Registrar el pago igual?')) return; }
+    }
+    try {
+      const d = await Api.registrarPago(datos);
+      if (!d.ok) { alert(d.error || 'No se pudo registrar el pago.'); return; }
+      const i = S.expedientes.findIndex(x => x.id === expId);
+      if (i >= 0) S.expedientes[i] = d.expediente;
+      (d.avisos || []).forEach(a => alert(a));
+      if (d.gastoYaEstabaCargado) alert('El gasto ya estaba cargado en la liquidación: no se duplicó.');
+      render();
+    } catch (e) {
+      alert('No se pudo confirmar el registro: ' + e.message + '\nAntes de reintentar, recargá la página: puede que se haya registrado igual (no se duplica si lo repetís).');
+    }
+  });
 }
 
 function resumenFases(exp) {

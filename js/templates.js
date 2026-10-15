@@ -127,6 +127,8 @@ function generarResumenExpediente(exp, consorcio) {
     lineas.push(`Monto a pagar (neto de retenciones): ${fmtMoneda(p.montoAPagar)}`);
   }
   lineas.push(`Visto bueno de pago: ${exp.vistoBuenoPago.aprobado ? 'APROBADO el ' + fmtFecha(String(exp.vistoBuenoPago.fecha).slice(0, 10)) + ' por ' + exp.vistoBuenoPago.por : 'Pendiente'}`);
+  if (exp.pagoRealizado && exp.pagoRealizado.fecha) lineas.push(`Pago realizado el ${fmtFechaCorta(exp.pagoRealizado.fecha)}${exp.pagoRealizado.referencia ? ' — operación ' + exp.pagoRealizado.referencia : ''} · Rubro ${exp.pagoRealizado.rubroGastos} · Fondo ${exp.pagoRealizado.fondo}`);
+  if (p.retencionPlanilla) lineas.push(`Planilla de Retenciones: fila ${p.retencionPlanilla.fila} (${p.retencionPlanilla.fecha})${p.retencionPlanilla.nCertificado ? ' · Certificado N° ' + p.retencionPlanilla.nCertificado : ''}`);
   if (exp.anulado && exp.anulado.fecha) lineas.push(`ANULADO el ${fmtFechaCorta(exp.anulado.fecha.slice(0, 10))}: ${exp.anulado.motivo}`);
   return lineas.join('\n');
 }

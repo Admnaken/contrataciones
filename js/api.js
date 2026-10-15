@@ -87,6 +87,18 @@ const Api = {
     return Api.post({ action: 'contratacionesGuardarExpediente', expediente: exp, versionBase: versionBase || 0 }, { intentos: 1, timeoutMs: 90000 });
   },
 
+  async datosPago(consorcioId, cuit) {
+    const d = await Api.post({ action: 'contratacionesDatosPago', consorcioId, cuit }, { intentos: 2, timeoutMs: 90000 });
+    if (!d.ok) throw new Error(d.error || 'No se pudieron leer los datos de pago.');
+    return d;
+  },
+
+  // Una sola vez y sin reintento automático: carga el gasto en la planilla del consorcio
+  // (el servidor igual reconoce si ya estaba cargado).
+  async registrarPago(datos) {
+    return Api.post(Object.assign({ action: 'contratacionesRegistrarPago' }, datos), { intentos: 1, timeoutMs: 120000 });
+  },
+
   async guardarConfig(tipo, valor) {
     const d = await Api.post({ action: 'contratacionesGuardarConfig', tipo, valor }, { intentos: 1 });
     if (!d.ok) throw new Error(d.error || 'No se pudo guardar.');

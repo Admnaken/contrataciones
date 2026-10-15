@@ -28,6 +28,8 @@ El servidor es el que hace cumplir las reglas importantes (no se pueden saltear 
 - El historial del expediente no se puede borrar; un expediente se puede anular con motivo, pero no eliminar.
 - Cada Visto Bueno se anota solo en la hoja `Contrataciones_Historial` de la planilla del consorcio.
 
+Circuito del pago: Visto Bueno de pago (se vincula la fila de la planilla de Retenciones del consorcio, que es la que calcula las retenciones) → transferencia en el banco → **"Registrar pago realizado"**. Ese último paso carga, una sola vez, el gasto en `Gastos_Mensual` (con la factura), las retenciones en `Otros_Registros`, el trabajo en el historial de mantenimiento y el proveedor en la lista del consorcio. La pantalla de Retenciones de la app principal ya no ofrece cargar los pagos que tienen expediente, y marca los que no lo tienen.
+
 Si quedaron expedientes de la versión anterior guardados en un navegador, al entrar desde ese navegador el panel ofrece importarlos al servidor.
 
 ### Ejecutar en local
