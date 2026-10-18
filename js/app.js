@@ -91,6 +91,8 @@ async function guardarExp(exp, opciones) {
   const versionBase = previo ? (previo.version || 0) : 0;
   S.guardando++; indicadorGuardado();
   try {
+    // Si hay tildes de este mismo expediente guardándose, espera a que terminen.
+    if (!op.enCola && colaExp[exp.id]) await colaExp[exp.id].catch(() => {});
     const d = await Api.guardarExpediente(exp, versionBase);
     if (d.ok) {
       const i = S.expedientes.findIndex(x => x.id === d.expediente.id);
@@ -111,6 +113,25 @@ async function guardarExp(exp, opciones) {
     S.guardando--; indicadorGuardado();
     if (!op.sinRender) render();
   }
+}
+
+// Tildes seguidos del mismo expediente (requisitos, cláusulas, documentos): se guardan
+// de a uno y cada cambio se aplica sobre la última versión guardada. Así marcar varios
+// casilleros rápido no se toma como un cambio "desde otro equipo" ni se pierde ninguno.
+const colaExp = {};
+const pendientesExp = {};
+function encolarCambioExp(expId, aplicar) {
+  pendientesExp[expId] = (pendientesExp[expId] || 0) + 1;
+  const anterior = colaExp[expId] || Promise.resolve();
+  const tarea = anterior.catch(() => {}).then(async () => {
+    const quedan = --pendientesExp[expId];
+    const exp = getExpediente(expId);
+    if (!exp || aplicar(exp) === false) { if (!quedan) render(); return false; }
+    return guardarExp(exp, { enCola: true, sinRender: quedan > 0 });
+  });
+  colaExp[expId] = tarea;
+  tarea.finally(() => { if (colaExp[expId] === tarea) delete colaExp[expId]; });
+  return tarea;
 }
 
 // Evita doble clic: el botón queda en "Guardando…" hasta que termina.
@@ -892,11 +913,11 @@ async function agregarPresupuesto(ev, expId) {
 
 async function toggleRequisitoPresupuesto(el, expId, presId, reqId, valor) {
   el.disabled = true;
-  const exp = getExpediente(expId);
-  const p = exp.presupuestos.find(x => x.id === presId);
-  if (!p) return;
-  p.requisitos[reqId] = valor;
-  await guardarExp(exp);
+  await encolarCambioExp(expId, (exp) => {
+    const p = exp.presupuestos.find(x => x.id === presId);
+    if (!p) return false;
+    p.requisitos[reqId] = valor;
+  });
 }
 
 async function seleccionarPresupuesto(btn, expId, presId) {
@@ -1020,10 +1041,10 @@ async function guardarTipoInstrumentacion(ev, expId) {
 }
 async function toggleClausula(el, expId, clausulaId, valor) {
   el.disabled = true;
-  const exp = getExpediente(expId);
-  exp.instrumentacion.clausulas = exp.instrumentacion.clausulas || {};
-  exp.instrumentacion.clausulas[clausulaId] = valor;
-  await guardarExp(exp);
+  await encolarCambioExp(expId, (exp) => {
+    exp.instrumentacion.clausulas = exp.instrumentacion.clausulas || {};
+    exp.instrumentacion.clausulas[clausulaId] = valor;
+  });
 }
 
 // --- Tab: Fase 4 — compliance laboral ---------------------------------------
@@ -1072,10 +1093,10 @@ async function guardarTipoPrestador(ev, expId) {
 }
 async function toggleDocLaboral(el, expId, docId, valor) {
   el.disabled = true;
-  const exp = getExpediente(expId);
-  exp.complianceLaboral.documentos = exp.complianceLaboral.documentos || {};
-  exp.complianceLaboral.documentos[docId] = valor;
-  await guardarExp(exp);
+  await encolarCambioExp(expId, (exp) => {
+    exp.complianceLaboral.documentos = exp.complianceLaboral.documentos || {};
+    exp.complianceLaboral.documentos[docId] = valor;
+  });
 }
 
 // --- Tab: Fase 5 — comprobantes, retenciones y pago -------------------------
@@ -1192,6 +1213,8 @@ function usarFilaRetencion(expId, clave) {
   if (!r || !f) return;
   const iso = (t) => { const m = String(t || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
   f.totalFactura.value = r.importeTotal;
+  // Neto e IVA salen de la misma fila: no hace falta tipearlos (y no pueden quedar distintos).
+  if (r.netoSinIva > 0) { f.montoNeto.value = r.netoSinIva; f.montoIva.value = r.ivaContenido || 0; }
   if (!f.numeroFactura.value && r.comprobante) f.numeroFactura.value = r.comprobante;
   if (!f.fechaPago.value) f.fechaPago.value = iso(r.fecha);
   f.retGanancias.value = r.gananciasRetenido; f.retSUSS.value = r.sussRetenido; f.retIVA.value = r.ivaRetenido;
@@ -1200,7 +1223,7 @@ function usarFilaRetencion(expId, clave) {
     nCertificado: r.nCertificado, comprobante: r.comprobante, ganancias: r.gananciasRetenido, suss: r.sussRetenido,
     iva: r.ivaRetenido, totalRetenido: r.totalRetenido, netoFinal: r.netoFinal,
   });
-  document.getElementById('detalle-retenciones').textContent = `Datos tomados de la fila ${r.fila} de la planilla de Retenciones (${r.fecha}). Completá neto, IVA, fecha de factura y tocá Guardar.`;
+  document.getElementById('detalle-retenciones').textContent = `Datos tomados de la fila ${r.fila} de la planilla de Retenciones (${r.fecha}). ${r.netoSinIva > 0 ? 'Completá' : 'Completá neto, IVA,'} número y fecha de factura y tocá Guardar.`;
   f.scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -1338,7 +1361,7 @@ function tabVistosBuenos(exp, consorcio) {
   <div class="card">
     <h3>Historial del expediente</h3>
     <ul class="historial">
-      ${(exp.historial || []).map(h => `<li><span class="text-muted">${esc(new Date(h.fecha).toLocaleString('es-AR'))}</span> — ${esc(h.texto)}</li>`).join('')}
+      ${(exp.historial || []).map(h => `<li><span class="text-muted">${esc(new Date(h.fecha).toLocaleString('es-AR', { hourCycle: 'h23' }))}</span> — ${esc(h.texto)}</li>`).join('')}
     </ul>
   </div>
   `;
