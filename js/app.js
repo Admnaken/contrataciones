@@ -20,6 +20,7 @@ const S = {
   expedientes: [],
   mantenimiento: {},      // { [edificioId]: [...] } historial de la app principal (se trae a demanda)
   guardando: 0,
+  rubrosIntentados: {},   // { [expId]: true } se lee la planilla una sola vez sola
   datosPago: {},          // { [expId]: { rubros, pagos, tienePlanillaRetenciones } } (a demanda)
   confirmarCreacion: null, // datos del alta pendiente de "crear igual" tras ver antecedentes
 };
@@ -190,6 +191,8 @@ function problemasPago(exp) {
   if (p.tipoFactura === 'C' && num(p.montoIva) > 0) out.push('Una factura C no discrimina IVA.');
   if (!p.medioPago || !MEDIOS_PAGO_VALIDOS.includes(p.medioPago)) out.push('Falta un medio de pago válido (nunca efectivo).');
   if (!p.fechaPago) out.push('Falta la fecha de pago.');
+  if (p.fechaPago && p.fechaFactura && p.fechaPago < p.fechaFactura) out.push('La fecha de pago es anterior a la fecha de la factura.');
+  if (!p.facturaUrl) out.push('Falta subir el archivo de la factura: es el respaldo del gasto que ven los propietarios.');
   if (tienePlanillaRetenciones(exp)) {
     if (!p.retencionPlanilla) out.push('Falta vincular el pago con su fila de la planilla de Retenciones del consorcio.');
     else if (Math.abs(num(p.retencionPlanilla.importeTotal) - num(p.totalFactura)) > 1) out.push(`El total de la factura (${fmtMoneda(p.totalFactura)}) no coincide con el pago de la planilla de Retenciones (${fmtMoneda(p.retencionPlanilla.importeTotal)}).`);
@@ -832,6 +835,7 @@ function tabPresupuestos(exp, consorcio, admin) {
       <form onsubmit="agregarPresupuesto(event, '${esc(exp.id)}')">
         <label>Proveedor / Razón social<input required name="proveedorNombre"></label>
         <label>CUIT<input required name="proveedorCuit" placeholder="30-XXXXXXXX-X"></label>
+        <label>Domicilio fiscal<input name="proveedorDomicilio" placeholder="Va a la liquidación de expensas (Modelo Único)"></label>
         <label>Email<input type="email" name="proveedorEmail"></label>
         <label>Teléfono<input name="proveedorTelefono"></label>
         <label>Monto cotizado (ARS, IVA incluido)<input required type="number" step="0.01" min="0.01" name="monto"></label>
@@ -902,6 +906,7 @@ async function agregarPresupuesto(ev, expId) {
     const p = nuevoPresupuesto({
       proveedorNombre: f.proveedorNombre.value.trim(), proveedorCuit: cuit,
       proveedorEmail: f.proveedorEmail.value.trim(), proveedorTelefono: f.proveedorTelefono.value.trim(),
+      proveedorDomicilio: (f.proveedorDomicilio ? f.proveedorDomicilio.value.trim() : ''),
       monto, garantiaMeses: Math.max(0, parseInt(f.garantiaMeses.value, 10) || 0),
       archivoNombre, archivoUrl,
     });
@@ -1378,6 +1383,14 @@ function bloquePagoRealizado(exp) {
   }
   const datos = S.datosPago[exp.id];
   const rubros = datos ? datos.rubros || [] : null;
+  // Los rubros se leen solos de la planilla del consorcio: así no se tipean (un rubro mal escrito
+  // deja el gasto fuera de su lugar en la liquidación).
+  const leyendo = !datos && !S.rubrosIntentados[exp.id];
+  if (leyendo) {
+    S.rubrosIntentados[exp.id] = true;
+    setTimeout(() => buscarEnPlanillaRetenciones(null, exp.id), 0);
+  }
+  const rubroSugerido = sugerirRubro(rubros || [], exp);
   const p = exp.pago || {};
   return `<div class="card card-narrow">
     <h3>Registrar pago realizado</h3>
@@ -1388,8 +1401,12 @@ function bloquePagoRealizado(exp) {
       <label>Comprobante de la transferencia (se guarda en tu Drive)<input type="file" name="comprobante" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*"></label>
       <label>Rubro del gasto en la liquidación
         ${rubros && rubros.length
-          ? `<select name="rubroGastos" required><option value="">Elegir…</option>${rubros.map(r => `<option ${/manten|repar/i.test(r) && rubros.filter(x => /manten|repar/i.test(x)).length === 1 ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>`
-          : `<input name="rubroGastos" required placeholder="Ej: 4 - Mantenimiento y Reparaciones">${rubros ? '' : ` <button class="btn btn-sm btn-ghost nk-libre" type="button" onclick="buscarEnPlanillaRetenciones(this,'${esc(exp.id)}')">Traer rubros de la planilla</button>`}`}
+          ? `<select name="rubroGastos" required><option value="">Elegir…</option>${rubros.map(r => `<option ${r === rubroSugerido ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>`
+          : (rubros
+            ? `<input name="rubroGastos" required placeholder="Ej: 4 - Mantenimiento de Partes Comunes"><span class="text-muted">No se pudieron leer los rubros de la planilla: escribilo igual que en Gastos_Mensual.</span>`
+            : (leyendo
+              ? `<select name="rubroGastos" required disabled><option value="">Leyendo los rubros de la planilla…</option></select>`
+              : `<input name="rubroGastos" required placeholder="Ej: 4 - Mantenimiento de Partes Comunes"> <button class="btn btn-sm btn-ghost nk-libre" type="button" onclick="buscarEnPlanillaRetenciones(this,'${esc(exp.id)}')">Traer rubros de la planilla</button>`))}
       </label>
       <label>Fondo
         <select name="fondo"><option value="A">Fondo A (ordinario)</option><option value="B">Fondo B (extraordinario / reserva)</option></select>
@@ -1399,6 +1416,15 @@ function bloquePagoRealizado(exp) {
   </div>`;
 }
 
+// Rubro más probable según el trabajo: mantenimiento de partes comunes salvo que sea dentro de una UF.
+function sugerirRubro(rubros, exp) {
+  if (!rubros.length) return '';
+  const texto = `${exp.areaInstalacion} ${exp.tipoServicio}`.toLowerCase();
+  const enUF = /\b(uf|unidad funcional|depto|departamento)\b/.test(texto);
+  const buscar = (re) => rubros.find(r => re.test(r));
+  return (enUF && buscar(/unidades funcionales/i)) || buscar(/partes comunes/i) || buscar(/mantenimiento/i) || '';
+}
+
 async function registrarPagoRealizado(ev, expId) {
   ev.preventDefault();
   const f = ev.target;
@@ -1406,6 +1432,10 @@ async function registrarPagoRealizado(ev, expId) {
   const datos = { expedienteId: expId, fechaPago: f.fechaPago.value, referencia: f.referencia.value.trim(), rubroGastos: f.rubroGastos.value.trim(), fondo: f.fondo.value };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fechaPago)) { alert('Revisá la fecha del pago.'); return; }
   if (new Date(datos.fechaPago + 'T12:00:00') > new Date()) { alert('La fecha del pago no puede ser futura: registralo después de hacer la transferencia.'); return; }
+  if (!datos.rubroGastos) { alert('Elegí el rubro del gasto.'); return; }
+  const vbDia = isoLocal(new Date(exp.vistoBuenoPago.fecha));
+  if (exp.vistoBuenoPago.fecha && datos.fechaPago < vbDia &&
+      !confirm(`La fecha del pago (${fmtFechaCorta(datos.fechaPago)}) es anterior al Visto Bueno de pago (${fmtFechaCorta(vbDia)}). Queda registrado así en el historial. ¿Es correcta?`)) return;
   if (!confirm(`Se registra el pago de ${fmtMoneda(exp.pago.totalFactura)} a ${(presupuestoSeleccionado(exp) || {}).proveedorNombre} en la liquidación (${datos.rubroGastos}, Fondo ${datos.fondo}). ¿Confirmás?`)) return;
   await conBoton(f.querySelector('button[type="submit"]'), async () => {
     const file = f.comprobante.files[0];
